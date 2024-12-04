@@ -1,48 +1,57 @@
 import logging
 import requests
+import os
+from notion_client import Client
+from pprint import pprint
+from dotenv import load_dotenv
 
-from meal_max.utils.logger import configure_logger
+from scholarship_finder.utils.logger import configure_logger
 
 logger = logging.getLogger(__name__)
 configure_logger(logger)
 
+# Load environment variables from .env file
+load_dotenv()
 
-def get_random() -> float:
+# Get your Notion Integration Token and Database ID from environment variables
+NOTION_API_KEY = os.getenv("NOTION_API_KEY")
+DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
+
+# Initialize Notion client
+notion = Client(auth=NOTION_API_KEY)
+
+def fetch_scholarship_data():
     """
-    Fetches a random float between 0 and 1 from random.org.
-
-    Returns:
-        float: The random number fetched from random.org.
-
-    Raises:
-        RuntimeError: If the request to random.org fails or returns an invalid response.
-        ValueError: If the response from random.org is not a valid float.
+    Fetch scholarship data from the Notion database.
+    Parses and returns the data in a dictionary format.
     """
-    url = "https://www.random.org/decimal-fractions/?num=1&dec=2&col=1&format=plain&rnd=new"
-
     try:
-        # Log the request to random.org
-        logger.info("Fetching random number from %s", url)
+        # Querying the Notion database
+        query = notion.databases.query(database_id=DATABASE_ID)
+        
+        # Parsing results
+        scholarships = []
+        for result in query['results']:
+            # Extracting the required properties
+            scholarship = {
+                "university": result['properties'].get('University', {}).get('rich_text', [{}])[0].get('text', {}).get('content', ''),
+                "scholarship_name": result['properties'].get('Scholarship Name', {}).get('title', [{}])[0].get('text', {}).get('content', ''),
+                "type": result['properties'].get('Type', {}).get('select', {}).get('name', ''),
+                "degree_level": result['properties'].get('Degree Level', {}).get('select', {}).get('name', ''),
+                "country": result['properties'].get('Country', {}).get('select', {}).get('name', ''),
+                "deadline": result['properties'].get('Deadline', {}).get('date', {}).get('start', ''),
+                "min_gpa": result['properties'].get('Min GPA', {}).get('number', None),
+                "major": result['properties'].get('Major', {}).get('multi_select', [])
+            }
+            scholarships.append(scholarship)
+        
+        return scholarships
+    
+    except Exception as e:
+        logger.error(f"Error fetching data from Notion: {str(e)}")
+        return []
 
-        response = requests.get(url, timeout=5)
-
-        # Check if the request was successful
-        response.raise_for_status()
-
-        random_number_str = response.text.strip()
-
-        try:
-            random_number = float(random_number_str)
-        except ValueError:
-            raise ValueError("Invalid response from random.org: %s" % random_number_str)
-
-        logger.info("Received random number: %.3f", random_number)
-        return random_number
-
-    except requests.exceptions.Timeout:
-        logger.error("Request to random.org timed out.")
-        raise RuntimeError("Request to random.org timed out.")
-
-    except requests.exceptions.RequestException as e:
-        logger.error("Request to random.org failed: %s", e)
-        raise RuntimeError("Request to random.org failed: %s" % e)
+# Example usage
+if __name__ == "__main__":
+    data = fetch_scholarship_data()
+    pprint(data)  # Prints the fetched scholarship data
